@@ -1,0 +1,166 @@
+# OpenTelemetry Collector config for HR AI Agents
+# Receives traces from Python SDK → exports to Jaeger + Prometheus
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: hr-ai
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+      # Redact PII fields from span attributes before exporting
+      attributes:
+        actions:
+          - key: employee.bank_account
+            action: delete
+          - key: employee.cccd
+            action: delete
+          - key: employee.phone
+            action: delete
+          - key: employee.full_name
+            action: delete
+
+    exporters:
+      # Jaeger v1.35+ accepts OTLP natively — jaeger exporter deprecated in otel-contrib 0.86+
+      otlp/jaeger:
+        endpoint: jaeger-service:4317
+        tls:
+          insecure: true
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: hr_ai
+      debug:
+        verbosity: basic
+
+    service:
+      pipelines:
+        traces:
+          receivers:  [otlp]
+          processors: [batch, attributes]
+          exporters:  [otlp/jaeger]
+        metrics:
+          receivers:  [otlp]
+          processors: [batch]
+          exporters:  [prometheus]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: hr-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.97.0
+        args: ["--config=/conf/otel-collector-config.yaml"]
+        ports:
+        - containerPort: 4317   # gRPC
+        - containerPort: 4318   # HTTP
+        - containerPort: 8889   # Prometheus metrics
+        volumeMounts:
+        - name: otel-config
+          mountPath: /conf
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+      volumes:
+      - name: otel-config
+        configMap:
+          name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-service
+  namespace: hr-ai
+spec:
+  selector:
+    app: otel-collector
+  ports:
+  - name: grpc
+    port: 4317
+    targetPort: 4317
+  - name: http
+    port: 4318
+    targetPort: 4318
+  - name: metrics
+    port: 8889
+    targetPort: 8889
+---
+# Jaeger all-in-one (dev/demo)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: hr-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:1.56
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        ports:
+        - containerPort: 16686   # UI
+        - containerPort: 14250   # Jaeger gRPC (legacy)
+        - containerPort: 4317    # OTLP gRPC
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: hr-ai
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: ui
+    port: 16686
+    targetPort: 16686
+  - name: grpc-legacy
+    port: 14250
+    targetPort: 14250
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
