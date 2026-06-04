@@ -135,7 +135,7 @@ def calculate_net_salary(input_data: dict) -> dict:
     ot_holiday          = float(input_data.get("overtime_hours_holiday", 0))
     allowances          = input_data.get("allowances", {}) or {}
     dependents          = int(input_data.get("dependents", 0))
-    deduction_flags     = input_data.get("deductions", {})
+    deduction_flags     = input_data.get("deductions", {}) or {}
     apply_bhxh          = deduction_flags.get("social_insurance", True)
     apply_bhyt          = deduction_flags.get("health_insurance", True)
     apply_cd            = deduction_flags.get("union_fee", True)
