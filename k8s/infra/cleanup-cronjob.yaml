@@ -20,12 +20,6 @@ spec:
             command: ["python", "-m", "backend.governance.data_retention_runner"]
             env:
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: DATABASE_URL
-                  optional: true
-            - name: DATABASE_URL
               value: "postgresql+asyncpg://hr_ai_user:hr_ai_pass_2026@postgres-service:5432/hr_ai_db"
             resources:
               requests:
