@@ -10,7 +10,7 @@ spec:
     targetRevision: HEAD
     path: k8s/agents
     directory:
-      include: "gateway-*.yaml,frontend-*.yaml"
+      include: "{gateway-*.yaml,frontend-*.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: hr-ai
