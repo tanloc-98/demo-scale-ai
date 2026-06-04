@@ -24,26 +24,8 @@ spec:
       kind: ClusterRoleBinding
 
   namespaceResourceWhitelist:
-    - group: "apps"
-      kind: Deployment
-    - group: "apps"
-      kind: StatefulSet
-    - group: "autoscaling"
-      kind: HorizontalPodAutoscaler
-    - group: "keda.sh"
-      kind: ScaledObject
-    - group: "batch"
-      kind: CronJob
-    - group: ""
-      kind: Service
-    - group: ""
-      kind: ConfigMap
-    - group: ""
-      kind: Secret
-    - group: ""
-      kind: PersistentVolumeClaim
-    - group: "networking.k8s.io"
-      kind: Ingress
+    - group: "*"
+      kind: "*"
 
   roles:
     - name: admin
