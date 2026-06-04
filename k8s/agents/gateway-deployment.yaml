@@ -4,7 +4,7 @@ metadata:
   name: agent-gateway
   namespace: hr-ai
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: agent-gateway
