@@ -7,7 +7,7 @@ spec:
   description: HR AI Agents — Scale AI Demo
 
   sourceRepos:
-    - https://github.com/tanloc-98/demo-scale-ai.git
+    - git@github.com:tanloc-98/demo-scale-ai.git
 
   destinations:
     - namespace: hr-ai
