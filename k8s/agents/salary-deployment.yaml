@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: salary-agent
+  namespace: hr-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: salary-agent
+  template:
+    metadata:
+      labels:
+        app: salary-agent
+    spec:
+      containers:
+      - name: backend
+        image: hr-ai-backend:latest
+        imagePullPolicy: Never
+        command: ["celery", "-A", "backend.workers.llm_worker.app", "worker", "-l", "INFO", "-Q", "salary"]
+        env:
+        - name: MOCK_LLM
+          value: "false"
+        - name: MLX_LM_BASE_URL
+          value: "http://host.docker.internal:8080/v1"
+        - name: REDIS_URL
+          value: "redis://redis-service:6379/0"
+        - name: DATABASE_URL
+          value: "sqlite+aiosqlite:///./hrdb.sqlite3"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

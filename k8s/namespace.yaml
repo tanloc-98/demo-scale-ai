@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hr-ai
+  labels:
+    app.kubernetes.io/part-of: hr-ai-agents
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hr-ai-sa
+  namespace: hr-ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hr-ai-role
+  namespace: hr-ai
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hr-ai-rolebinding
+  namespace: hr-ai
+subjects:
+  - kind: ServiceAccount
+    name: hr-ai-sa
+    namespace: hr-ai
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: hr-ai-role
+---
+# PVC for MLX-LM model weights (~4GB for Qwen2.5-1.5B bf16)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlx-model-pvc
+  namespace: hr-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 20Gi
+---
+# PVC for PostgreSQL data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: hr-ai
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 10Gi

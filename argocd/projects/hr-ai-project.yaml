@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: hr-ai
+  namespace: argocd
+spec:
+  description: HR AI Agents — Scale AI Demo
+
+  sourceRepos:
+    - https://github.com/tanloc-98/demo-scale-ai.git
+
+  destinations:
+    - namespace: hr-ai
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: "apps"
+      kind: StatefulSet
+    - group: "autoscaling"
+      kind: HorizontalPodAutoscaler
+    - group: "keda.sh"
+      kind: ScaledObject
+    - group: "batch"
+      kind: CronJob
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: "networking.k8s.io"
+      kind: Ingress
+
+  roles:
+    - name: admin
+      description: Full access to hr-ai project
+      policies:
+        - p, proj:hr-ai:admin, applications, *, hr-ai/*, allow
+      groups:
+        - hr-ai-admins

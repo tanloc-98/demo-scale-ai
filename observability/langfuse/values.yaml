@@ -1,0 +1,40 @@
+# Langfuse Helm values — self-hosted LLM observability
+# helm install langfuse langfuse/langfuse -n observability -f values.yaml
+
+replicaCount: 1
+
+image:
+  tag: "2"
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: langfuse.hr-ai.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: langfuse_pg_pass
+    database: langfuse_db
+
+langfuse:
+  nextauth:
+    url: http://langfuse.hr-ai.local
+    secret: langfuse-nextauth-secret-2026
+  salt: langfuse-salt-2026
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"

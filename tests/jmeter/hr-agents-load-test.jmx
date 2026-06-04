@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="HR AI Agents Load Test">
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="host"      elementType="Argument"><stringProp name="Argument.name">host</stringProp><stringProp name="Argument.value">localhost</stringProp></elementProp>
+          <elementProp name="port"      elementType="Argument"><stringProp name="Argument.name">port</stringProp><stringProp name="Argument.value">8000</stringProp></elementProp>
+          <elementProp name="target_rps" elementType="Argument"><stringProp name="Argument.name">target_rps</stringProp><stringProp name="Argument.value">10</stringProp></elementProp>
+          <elementProp name="threads"   elementType="Argument"><stringProp name="Argument.name">threads</stringProp><stringProp name="Argument.value">20</stringProp></elementProp>
+          <elementProp name="rampup"    elementType="Argument"><stringProp name="Argument.name">rampup</stringProp><stringProp name="Argument.value">30</stringProp></elementProp>
+          <elementProp name="duration"  elementType="Argument"><stringProp name="Argument.name">duration</stringProp><stringProp name="Argument.value">120</stringProp></elementProp>
+          <elementProp name="data_dir"  elementType="Argument"><stringProp name="Argument.name">data_dir</stringProp><stringProp name="Argument.value">./test-data</stringProp></elementProp>
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+
+      <!-- ============================================================ -->
+      <!-- HTTP Defaults                                                  -->
+      <!-- ============================================================ -->
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Defaults">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments"/>
+        <stringProp name="HTTPSampler.domain">${host}</stringProp>
+        <stringProp name="HTTPSampler.port">${port}</stringProp>
+        <stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.connect_timeout">5000</stringProp>
+        <stringProp name="HTTPSampler.response_timeout">60000</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+
+      <!-- ============================================================ -->
+      <!-- Thread Group: Salary Agent                                     -->
+      <!-- ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Salary Agent Load">
+        <intProp name="ThreadGroup.num_threads">${threads}</intProp>
+        <intProp name="ThreadGroup.ramp_time">${rampup}</intProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${duration}</stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">false</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <!-- CSV Data -->
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="Employee Data">
+          <stringProp name="filename">${data_dir}/employees_200.csv</stringProp>
+          <stringProp name="variableNames">employee_id,base_salary,overtime_hours,overtime_hours_weekend,days_absent,dependents</stringProp>
+          <stringProp name="delimiter">,</stringProp>
+          <boolProp name="ignoreFirstLine">true</boolProp>
+          <boolProp name="recycle">true</boolProp>
+          <boolProp name="stopThread">false</boolProp>
+          <stringProp name="shareMode">shareMode.all</stringProp>
+        </CSVDataSet>
+        <hashTree/>
+
+        <!-- Throughput Shaping Timer (jp@gc plugin) -->
+        <kg.apc.jmeter.timers.VariableThroughputTimer guiclass="kg.apc.jmeter.timers.VariableThroughputTimerGui" testclass="kg.apc.jmeter.timers.VariableThroughputTimer" testname="Throughput Shaper">
+          <collectionProp name="load_profile">
+            <collectionProp name="load_profile_entry">
+              <stringProp>${target_rps}</stringProp>
+              <stringProp>${target_rps}</stringProp>
+              <stringProp>${duration}</stringProp>
+            </collectionProp>
+          </collectionProp>
+        </kg.apc.jmeter.timers.VariableThroughputTimer>
+        <hashTree/>
+
+        <!-- POST /api/v1/salary/calculate -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /salary/calculate">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <stringProp name="Argument.value">{"employee_id":"${employee_id}","month":"2026-05","base_salary":${base_salary},"total_work_days":22,"days_worked":${__groovy(22 - Integer.parseInt(vars.get("days_absent")),)},"days_absent":${days_absent},"overtime_hours":${overtime_hours},"overtime_hours_weekend":${overtime_hours_weekend},"overtime_hours_holiday":0,"allowances":{"lunch":800000,"transport":500000},"deductions":{"social_insurance":true,"health_insurance":true,"union_fee":true},"dependents":${dependents}}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/v1/salary/calculate</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Headers">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <!-- Assert: 202 Accepted (async) or 200 OK (sync) -->
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Status 200/202">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp>200</stringProp>
+              <stringProp>202</stringProp>
+            </collectionProp>
+            <intProp name="Assertion.test_type">2</intProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <!-- Extract job_id for polling -->
+          <JSONPathExtractor guiclass="JSONPathExtractorGui" testclass="JSONPathExtractor" testname="Extract job_id">
+            <stringProp name="JSONPathExtractor.referenceName">job_id</stringProp>
+            <stringProp name="JSONPathExtractor.jsonPathExpr">$.job_id</stringProp>
+            <stringProp name="JSONPathExtractor.defaultValue">NOTFOUND</stringProp>
+          </JSONPathExtractor>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+
+      <!-- ============================================================ -->
+      <!-- Thread Group: Timesheet Agent                                  -->
+      <!-- ============================================================ -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Timesheet Agent Load">
+        <intProp name="ThreadGroup.num_threads">${__groovy(Integer.parseInt(vars.get("threads")) / 2,)}</intProp>
+        <intProp name="ThreadGroup.ramp_time">${rampup}</intProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${duration}</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="Checkin Data">
+          <stringProp name="filename">${data_dir}/checkin_data.csv</stringProp>
+          <stringProp name="variableNames">ts_employee_id,ts_date,ts_check_in,ts_check_out</stringProp>
+          <stringProp name="delimiter">,</stringProp>
+          <boolProp name="ignoreFirstLine">true</boolProp>
+          <boolProp name="recycle">true</boolProp>
+        </CSVDataSet>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /timesheet/process">
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <stringProp name="Argument.value">{"employee_id":"${ts_employee_id}","month":"2026-06","records":[{"date":"${ts_date}","check_in":"${ts_check_in}","check_out":"${ts_check_out}"}],"work_schedule":{"start":"08:00","end":"17:30","break_minutes":60}}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.path">/api/v1/timesheet/process</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Headers">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Status 200/202">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp>200</stringProp>
+              <stringProp>202</stringProp>
+            </collectionProp>
+            <intProp name="Assertion.test_type">2</intProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+
+      <!-- ============================================================ -->
+      <!-- Listeners                                                      -->
+      <!-- ============================================================ -->
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report">
+        <objProp><name>saveConfig</name><value class="SampleSaveConfiguration"><time>true</time><latency>true</latency><responseCode>true</responseCode><responseMessage>true</responseMessage><threadName>true</threadName><dataType>true</dataType><encoding>false</encoding><assertions>true</assertions><subresults>true</subresults><responseData>false</responseData><samplerData>false</samplerData><xml>false</xml><fieldNames>true</fieldNames><responseHeaders>false</responseHeaders><requestHeaders>false</requestHeaders><responseDataOnError>false</responseDataOnError><saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage><bytes>true</bytes><url>true</url></value></objProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

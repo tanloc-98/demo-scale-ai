@@ -1,0 +1,85 @@
+# kube-prometheus-stack Helm values for HR AI Agents
+# helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#   -n observability --create-namespace -f prometheus-config.yaml
+
+grafana:
+  enabled: true
+  adminPassword: hr-ai-grafana-2026
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.hr-ai.local
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.observability.svc.cluster.local:3100
+      isDefault: false
+    - name: Jaeger
+      type: jaeger
+      url: http://jaeger-service.hr-ai.svc.cluster.local:16686
+      isDefault: false
+
+  # HR AI Overview dashboard — provisioned at startup
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: hr-ai
+          orgId: 1
+          folder: HR AI
+          type: file
+          options:
+            path: /var/lib/grafana/dashboards/hr-ai
+
+  dashboards:
+    hr-ai:
+      hr-ai-overview:
+        json: |
+          {
+            "title": "HR AI Agents Overview",
+            "panels": [
+              {"title": "LLM Requests/s",  "type": "stat",  "datasource": "Prometheus"},
+              {"title": "P95 Latency (ms)", "type": "graph", "datasource": "Prometheus"},
+              {"title": "Queue Depth",      "type": "graph", "datasource": "Prometheus"},
+              {"title": "Pod Count",        "type": "graph", "datasource": "Prometheus"},
+              {"title": "Cache Hit Rate",   "type": "stat",  "datasource": "Prometheus"},
+              {"title": "Error Rate",       "type": "stat",  "datasource": "Prometheus"},
+              {"title": "Token Usage/hr",   "type": "graph", "datasource": "Prometheus"},
+              {"title": "Log Stream",       "type": "logs",  "datasource": "Loki"}
+            ]
+          }
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: hostpath
+          resources:
+            requests:
+              storage: 10Gi
+    # Scrape hr-ai namespace pods with prometheus.io/scrape=true
+    additionalScrapeConfigs:
+      - job_name: hr-ai-pods
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [hr-ai]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: $1
+      # Redis queue depth from redis-exporter
+      - job_name: redis-exporter
+        static_configs:
+          - targets: ["redis-exporter-service.hr-ai.svc.cluster.local:9121"]
+
+alertmanager:
+  enabled: false   # disable for local demo — no alert routing needed

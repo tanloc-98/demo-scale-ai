@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlx-lm
+  namespace: hr-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlx-lm
+  template:
+    metadata:
+      labels:
+        app: mlx-lm
+    spec:
+      initContainers:
+      - name: model-downloader
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            pip install -q huggingface_hub
+            huggingface-cli download ${MLX_MODEL} --local-dir /model-cache/${MLX_MODEL}
+        envFrom:
+          - configMapRef:
+              name: mlx-lm-config
+        volumeMounts:
+          - name: model-cache
+            mountPath: /model-cache
+      containers:
+      - name: mlx-lm
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            pip install -q mlx-lm
+            mlx_lm.server --model /model-cache/${MLX_MODEL} --port ${MLX_PORT} --host ${MLX_HOST}
+        envFrom:
+          - configMapRef:
+              name: mlx-lm-config
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "4"
+            memory: "6Gi"
+          limits:
+            cpu: "8"
+            memory: "8Gi"
+        volumeMounts:
+          - name: model-cache
+            mountPath: /model-cache
+        readinessProbe:
+          httpGet:
+            path: /v1/models
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: mlx-model-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlx-lm-service
+  namespace: hr-ai
+spec:
+  selector:
+    app: mlx-lm
+  ports:
+  - port: 8080
+    targetPort: 8080
