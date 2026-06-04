@@ -92,7 +92,7 @@ class SalaryAgent:
         llm = ChatOpenAI(
             base_url=MLX_LM_BASE_URL,
             api_key="none",
-            model="Qwen/Qwen2.5-1.5B-Instruct",
+            model=os.getenv("LLM_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
             max_tokens=200,
             temperature=0.3,
         )

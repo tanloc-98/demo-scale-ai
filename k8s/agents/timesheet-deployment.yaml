@@ -22,7 +22,9 @@ spec:
         - name: MOCK_LLM
           value: "false"
         - name: MLX_LM_BASE_URL
-          value: "http://host.docker.internal:8080/v1"
+          value: "http://mlx-lm-service:8080/v1"
+        - name: LLM_MODEL
+          value: "qwen2.5:1.5b"
         - name: REDIS_URL
           value: "redis://redis-service:6379/0"
         - name: DATABASE_URL

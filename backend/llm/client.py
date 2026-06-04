@@ -13,6 +13,7 @@ from backend.observability.logger import log_llm_call, span, Timer
 
 MOCK_LLM          = os.getenv("MOCK_LLM", "true").lower() == "true"
 MLX_LM_BASE_URL   = os.getenv("MLX_LM_BASE_URL", "http://localhost:8080/v1")
+LLM_MODEL         = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
 LANGFUSE_ENABLED  = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
 LANGFUSE_HOST     = os.getenv("LANGFUSE_HOST", "http://localhost:3002")
 LANGFUSE_PK       = os.getenv("LANGFUSE_PUBLIC_KEY",  "lf-pk-hr-ai-demo-2026")
@@ -152,7 +153,7 @@ class LLMClient:
         try:
             client = AsyncOpenAI(base_url=MLX_LM_BASE_URL, api_key="none")
             response = await client.chat.completions.create(
-                model="Qwen/Qwen2.5-1.5B-Instruct",
+                model=LLM_MODEL,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user",   "content": prompt},
@@ -170,7 +171,7 @@ class LLMClient:
                          latency_ms=latency, cached=False)
             self._trace_langfuse(
                 name="salary-format-real",
-                model="Qwen/Qwen2.5-1.5B-Instruct",
+                model=LLM_MODEL,
                 input_text=prompt,
                 output_text=summary,
                 prompt_tokens=usage.prompt_tokens,
@@ -197,7 +198,7 @@ class LLMClient:
         try:
             client = AsyncOpenAI(base_url=MLX_LM_BASE_URL, api_key="none")
             response = await client.chat.completions.create(
-                model="Qwen/Qwen2.5-1.5B-Instruct",
+                model=LLM_MODEL,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user",   "content": prompt},
@@ -215,7 +216,7 @@ class LLMClient:
                          latency_ms=latency, cached=False)
             self._trace_langfuse(
                 name="timesheet-format-real",
-                model="Qwen/Qwen2.5-1.5B-Instruct",
+                model=LLM_MODEL,
                 input_text=prompt,
                 output_text=summary,
                 prompt_tokens=usage.prompt_tokens,

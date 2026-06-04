@@ -1,6 +1,88 @@
-# MLX-LM runs directly on Mac M2 host (requires Apple Metal/Neural Engine).
-# K8s pods access it via host.docker.internal:8080.
-# This ExternalName Service routes in-cluster traffic to the host process.
+# Ollama LLM server — OpenAI-compatible API, runs inside K8s pod
+# Uses qwen2.5:1.5b (4-bit quantized ~1.1GB) on CPU via llama.cpp
+# Model cached in PVC mlx-model-pvc to avoid re-download on restart
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlx-lm
+  namespace: hr-ai
+  labels:
+    app: mlx-lm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlx-lm
+  template:
+    metadata:
+      labels:
+        app: mlx-lm
+    spec:
+      initContainers:
+      - name: model-pull
+        image: ollama/ollama:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            ollama serve &
+            SERVER_PID=$!
+            echo "Waiting for Ollama server..."
+            until curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; do sleep 2; done
+            echo "Pulling model qwen2.5:1.5b..."
+            ollama pull qwen2.5:1.5b
+            echo "Model ready."
+            kill $SERVER_PID
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - containerPort: 11434
+          name: http
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        - name: OLLAMA_NUM_PARALLEL
+          value: "1"
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: "1"
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "4"
+            memory: "3Gi"
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 30
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          claimName: mlx-model-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -8,9 +90,9 @@ metadata:
   name: mlx-lm-service
   namespace: hr-ai
 spec:
-  type: ExternalName
-  externalName: host.docker.internal
+  selector:
+    app: mlx-lm
   ports:
   - name: http
     port: 8080
-    targetPort: 8080
+    targetPort: 11434

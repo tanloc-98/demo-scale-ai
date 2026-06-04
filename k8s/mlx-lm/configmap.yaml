@@ -4,10 +4,5 @@ metadata:
   name: mlx-lm-config
   namespace: hr-ai
 data:
-  MLX_MODEL: "Qwen/Qwen2.5-1.5B-Instruct"
-  MLX_PORT: "8080"
-  MLX_HOST: "0.0.0.0"
-  MLX_MAX_TOKENS: "2048"
-  # Cache model to PVC path so init-container download is reused
-  HF_HOME: "/model-cache"
-  TRANSFORMERS_CACHE: "/model-cache"
+  LLM_MODEL: "qwen2.5:1.5b"
+  LLM_BASE_URL: "http://mlx-lm-service:8080/v1"
