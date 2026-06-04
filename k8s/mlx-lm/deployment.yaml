@@ -11,6 +11,8 @@ metadata:
     app: mlx-lm
 spec:
   replicas: 1
+  strategy:
+    type: Recreate       # Kill old pod before creating new (Ollama needs full memory)
   selector:
     matchLabels:
       app: mlx-lm
