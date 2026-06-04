@@ -25,13 +25,14 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
           - |
+            export OLLAMA_HOST=http://127.0.0.1:11434
             ollama serve &
             SERVER_PID=$!
             echo "Waiting for Ollama server..."
             until ollama list >/dev/null 2>&1; do sleep 2; done
             echo "Pulling model qwen2.5:1.5b..."
             ollama pull qwen2.5:1.5b
-            echo "Model ready."
+            echo "Model ready. Stopping server."
             kill $SERVER_PID
             wait $SERVER_PID 2>/dev/null || true
         volumeMounts:
