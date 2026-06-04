@@ -28,11 +28,12 @@ spec:
             ollama serve &
             SERVER_PID=$!
             echo "Waiting for Ollama server..."
-            until curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; do sleep 2; done
+            until ollama list >/dev/null 2>&1; do sleep 2; done
             echo "Pulling model qwen2.5:1.5b..."
             ollama pull qwen2.5:1.5b
             echo "Model ready."
             kill $SERVER_PID
+            wait $SERVER_PID 2>/dev/null || true
         volumeMounts:
         - name: ollama-data
           mountPath: /root/.ollama
