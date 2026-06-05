@@ -121,8 +121,7 @@ async def start_load_test(payload: dict, background_tasks: BackgroundTasks):
     update_metrics(load_test_active=True, load_test_rps=rps)
 
     async def _simulate_load():
-        from backend.db.job_store import _jobs, _new_job, update_job
-        import uuid
+        from backend.db.job_store import create_salary_job, update_job
         total = rps * 60  # simulate 60 seconds worth
         batch = min(rps, 50)
         for _ in range(total // batch):
@@ -130,12 +129,16 @@ async def start_load_test(payload: dict, background_tasks: BackgroundTasks):
                 break
             for _ in range(batch):
                 emp = f"EMP{random.randint(1,200):03d}"
-                job = _new_job(emp, "salary", {
+                payload = {
                     "employee_id": emp, "month": "2026-05",
                     "base_salary": random.randint(10_000_000, 25_000_000),
                     "overtime_hours": random.randint(0, 20),
                     "days_absent": random.randint(0, 2),
-                })
+                }
+                job = create_salary_job(emp, payload)
+                # Mark as completed immediately (simulated load, no real processing)
+                update_job(job["job_id"], status="completed",
+                           result={"net_salary": payload["base_salary"] * 0.85})
                 _load_test_state["requests_sent"] += 1
             await asyncio.sleep(1)
         _load_test_state["active"] = False
