@@ -17,14 +17,15 @@ spec:
       - name: backend
         image: hr-ai-backend:latest
         imagePullPolicy: Never
-        command: ["celery", "-A", "backend.workers.llm_worker.app", "worker", "-l", "INFO", "-Q", "salary"]
+        command: ["celery", "-A", "backend.workers.llm_worker.app", "worker",
+                  "-l", "INFO", "-Q", "salary", "--concurrency=2"]
         env:
         - name: MOCK_LLM
           value: "false"
         - name: MLX_LM_BASE_URL
           value: "http://mlx-lm-service:8080/v1"
         - name: LLM_MODEL
-          value: "qwen2.5:1.5b"
+          value: "Qwen/Qwen2.5-1.5B-Instruct"
         - name: REDIS_URL
           value: "redis://redis-service:6379/0"
         - name: DATABASE_URL
@@ -32,7 +33,7 @@ spec:
         resources:
           requests:
             cpu: "100m"
-            memory: "256Mi"
+            memory: "512Mi"
           limits:
             cpu: "500m"
-            memory: "512Mi"
+            memory: "1Gi"
