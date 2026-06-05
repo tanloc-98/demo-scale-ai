@@ -8,6 +8,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    ca-certificates \
+    && curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" \
+    && chmod +x kubectl && mv kubectl /usr/local/bin/kubectl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies

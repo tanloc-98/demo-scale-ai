@@ -13,6 +13,7 @@ spec:
       labels:
         app: agent-gateway
     spec:
+      serviceAccountName: hr-ai-sa   # allows kubectl scale from inside pod
       containers:
       - name: backend
         image: hr-ai-backend:latest

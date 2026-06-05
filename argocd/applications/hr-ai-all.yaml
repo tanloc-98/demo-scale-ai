@@ -15,6 +15,12 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: hr-ai
+  # Ignore spec.replicas so HPA and demo scaling aren't reverted by ArgoCD
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
   syncPolicy:
     automated:
       prune: true

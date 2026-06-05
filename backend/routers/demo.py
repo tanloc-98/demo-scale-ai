@@ -2,11 +2,24 @@
 import asyncio
 import json
 import random
+import subprocess
 import time
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from backend.db.job_store import update_metrics, get_metrics
+
+# K8s deployment names (must match k8s/agents/ manifests)
+_DEPLOYMENT_MAP = {
+    "agent-gateway":  "agent-gateway",
+    "salary-agent":   "salary-agent",
+    "timesheet-agent":"timesheet-agent",
+}
+_HPA_MAP = {
+    "agent-gateway":  "agent-gateway-hpa",
+    "salary-agent":   "salary-agent-hpa",
+    "timesheet-agent":"timesheet-agent-hpa",
+}
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -61,32 +74,67 @@ _REDTEAM_SUITES = {
 
 @router.post("/scale")
 async def scale_service(payload: dict, background_tasks: BackgroundTasks):
-    """Scale a service's replica count (simulated ArgoCD apply)."""
-    service = payload.get("service", "")
+    """Scale a K8s deployment via kubectl. ArgoCD ignores spec.replicas so this persists."""
+    service  = payload.get("service", "")
     replicas = int(payload.get("replicas", 1))
 
     if service not in _pod_state:
-        return {"error": f"Unknown service: {service}"}
+        return {"error": f"Unknown service: {service}. Valid: {list(_pod_state.keys())}"}
 
     old = _pod_state[service]["desired"]
+    deployment = _DEPLOYMENT_MAP.get(service, service)
+
+    # Scale deployment AND update HPA minReplicas to prevent HPA fighting back
+    try:
+        r1 = subprocess.run(
+            ["kubectl", "scale", "deployment", deployment,
+             f"--replicas={replicas}", "-n", "hr-ai"],
+            capture_output=True, text=True, timeout=10
+        )
+        if r1.returncode != 0:
+            return {"error": r1.stderr.strip(), "service": service}
+        # Update HPA minReplicas so HPA doesn't immediately revert the scale
+        hpa_name = _HPA_MAP.get(service)
+        if hpa_name:
+            subprocess.run(
+                ["kubectl", "patch", "hpa", hpa_name, "-n", "hr-ai",
+                 "--type=merge",
+                 f"--patch={{\"spec\":{{\"minReplicas\":{replicas}}}}}"],
+                capture_output=True, text=True, timeout=10
+            )
+    except Exception as e:
+        return {"error": str(e), "service": service}
+
     _pod_state[service]["desired"] = replicas
     update_metrics(pod_counts={svc: s["running"] for svc, s in _pod_state.items()})
 
-    # Simulate gradual pod spin-up in background
-    async def _ramp(svc: str, target: int, current: int):
-        step = 1 if target > current else -1
-        for r in range(current, target, step):
-            await asyncio.sleep(3)
-            _pod_state[svc]["running"] = r + step
-            update_metrics(pod_counts={s: p["running"] for s, p in _pod_state.items()})
+    # Track running count as pods spin up
+    async def _track_running(svc: str, target: int):
+        for _ in range(30):          # poll up to 60s
+            await asyncio.sleep(2)
+            try:
+                r = subprocess.run(
+                    ["kubectl", "get", "pods", "-n", "hr-ai",
+                     "-l", f"app={deployment}", "--no-headers"],
+                    capture_output=True, text=True, timeout=5
+                )
+                running = sum(1 for l in r.stdout.strip().splitlines()
+                              if "Running" in l and "1/1" in l)
+                _pod_state[svc]["running"] = running
+                update_metrics(pod_counts={s: p["running"] for s, p in _pod_state.items()})
+                if running == target:
+                    break
+            except Exception:
+                break
 
-    background_tasks.add_task(_ramp, service, replicas, old)
+    background_tasks.add_task(_track_running, service, replicas)
     return {
-        "service": service,
+        "service":      service,
+        "deployment":   deployment,
         "old_replicas": old,
         "new_replicas": replicas,
-        "status": "syncing",
-        "message": f"ArgoCD syncing {service} → {replicas} replicas",
+        "status":       "scaling",
+        "message":      f"kubectl scale {deployment} --replicas={replicas} applied",
     }
 
 
