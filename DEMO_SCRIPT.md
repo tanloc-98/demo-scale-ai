@@ -36,6 +36,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload &
 cd frontend && npm run dev &   # http://localhost:3000
 
 # 3. Port-forward các services (nếu chưa)
+kubectl port-forward -n hr-ai svc/agent-gateway-service 8000:80 &      # Backend API ← QUAN TRỌNG cho scale-demo
 kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3001:80 &
 kubectl port-forward -n observability svc/langfuse-service 3002:3000 &
 kubectl port-forward -n hr-ai svc/jaeger-service 16686:16686 &
@@ -45,8 +46,9 @@ kubectl port-forward -n argocd svc/argocd-server 8443:443 &
 python3 backend/seed_demo_data.py
 
 # 5. Verify tất cả
-curl -s http://localhost:8000/health   # → {"status":"ok"}
+curl -s http://localhost:8000/health   # → {"status":"ok"}  ← nếu fail: chạy lại step port-forward
 curl -s -o /dev/null -w "%{http_code}" http://localhost:3000   # → 200
+curl -s http://localhost:8000/api/v1/demo/loadtest/status | python3 -m json.tool  # → active: false
 
 # 6. Mở 5 browser tabs trước:
 #   Tab 1: http://localhost:3000              (Dashboard)
@@ -270,16 +272,15 @@ open tests/jmeter/reports/comparison.html
 ## Fallback nếu có sự cố
 
 ```bash
-# Backend crash → restart với MOCK_LLM
-pkill -f uvicorn
-source venv/bin/activate
-MOCK_LLM=true uvicorn backend.main:app --port 8000 &
-# MOCK_LLM=true: response ngay lập tức, không cần MLX-LM
+# Backend port-forward mất (scale-demo không hoạt động)
+kubectl port-forward -n hr-ai svc/agent-gateway-service 8000:80 &
+curl -s http://localhost:8000/health  # verify → {"status":"ok"}
 
 # Frontend crash
 cd frontend && npm run dev &
 
-# Port-forward mất
+# Port-forward tất cả
+kubectl port-forward -n hr-ai svc/agent-gateway-service 8000:80 &
 kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3001:80 &
 kubectl port-forward -n observability svc/langfuse-service 3002:3000 &
 kubectl port-forward -n hr-ai svc/jaeger-service 16686:16686 &

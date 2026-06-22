@@ -18,13 +18,17 @@ from backend.routers.demo import router as demo_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown events."""
-    # Create DB tables (audit_log, jobs, salary_results, timesheet_results)
+    import asyncio
     from backend.db.database import init_db
     await init_db()
-    # Seed demo data
-    from backend.db.job_store import seed_demo_jobs
+    from backend.db.job_store import seed_demo_jobs, update_metrics
     seed_demo_jobs()
+    update_metrics(load_test_active=False, load_test_rps=0)
+    # Start background loop that syncs real K8s pod counts every 10 s
+    from backend.routers.demo import poll_pod_counts_loop
+    task = asyncio.create_task(poll_pod_counts_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(

@@ -30,6 +30,11 @@ export async function stopLoadTest() {
   return res.json();
 }
 
+export async function getLoadTestStatus() {
+  const res = await fetch(`${API_BASE}/demo/loadtest/status`);
+  return res.json();
+}
+
 export async function calculateSalary(payload: any) {
   const res = await fetch(`${API_BASE}/salary/calculate`, {
     method: "POST",

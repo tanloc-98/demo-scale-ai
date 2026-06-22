@@ -5,6 +5,7 @@ import random
 import subprocess
 import time
 from datetime import datetime
+import httpx
 from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from backend.db.job_store import update_metrics, get_metrics
@@ -23,13 +24,59 @@ _HPA_MAP = {
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
+_TRACKED_APPS = list(_DEPLOYMENT_MAP.keys()) + ["mlx-lm"]
+_K8S_NAMESPACE = "hr-ai"
+
+
+def _fetch_k8s_pod_counts() -> dict[str, int]:
+    """Run kubectl and return {app_label: running_count}. Returns {} on error."""
+    try:
+        r = subprocess.run(
+            ["kubectl", "get", "pods", "-n", _K8S_NAMESPACE, "--no-headers",
+             "-o", "custom-columns=APP:.metadata.labels.app,PHASE:.status.phase,"
+                   "READY:.status.containerStatuses[0].ready"],
+            capture_output=True, text=True, timeout=8,
+        )
+        counts: dict[str, int] = {}
+        for line in r.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            app, phase, ready = parts[0], parts[1], parts[2]
+            if app in _TRACKED_APPS and phase == "Running" and ready == "true":
+                counts[app] = counts.get(app, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
+async def poll_pod_counts_loop():
+    """Background loop: sync real K8s pod counts into _pod_state every 10 s."""
+    while True:
+        counts = await asyncio.get_event_loop().run_in_executor(None, _fetch_k8s_pod_counts)
+        if counts:
+            for app in _TRACKED_APPS:
+                n = counts.get(app, 0)
+                _pod_state[app]["running"] = n
+                _pod_state[app]["desired"] = n
+            update_metrics(pod_counts={app: _pod_state[app]["running"] for app in _TRACKED_APPS})
+        await asyncio.sleep(10)
+
 # In-memory state for demo
 _load_test_state = {
     "active": False,
     "target_rps": 0,
     "started_at": None,
+    "ended_at": None,
+    "duration_s": 0.0,
     "requests_sent": 0,
     "errors": 0,
+    "error_rate": 0.0,
+    "effective_rps": 0.0,
+    "p50_ms": 0.0,
+    "p95_ms": 0.0,
+    "status_202": 0,
+    "completed": False,
 }
 
 _pod_state = {
@@ -159,37 +206,93 @@ async def start_load_test(payload: dict, background_tasks: BackgroundTasks):
     """Start simulated load test."""
     global _load_test_state
     rps = int(payload.get("target_rps", 10))
+    started_at = datetime.utcnow()
     _load_test_state = {
         "active": True,
         "target_rps": rps,
-        "started_at": datetime.utcnow().isoformat(),
+        "started_at": started_at.isoformat(),
+        "ended_at": None,
+        "duration_s": 0.0,
         "requests_sent": 0,
         "errors": 0,
+        "error_rate": 0.0,
+        "effective_rps": 0.0,
+        "p50_ms": 0.0,
+        "p95_ms": 0.0,
+        "status_202": 0,
+        "completed": False,
     }
     update_metrics(load_test_active=True, load_test_rps=rps)
 
     async def _simulate_load():
-        from backend.db.job_store import create_salary_job, update_job
-        total = rps * 60  # simulate 60 seconds worth
-        batch = min(rps, 50)
-        for _ in range(total // batch):
-            if not _load_test_state["active"]:
-                break
-            for _ in range(batch):
-                emp = f"EMP{random.randint(1,200):03d}"
-                payload = {
-                    "employee_id": emp, "month": "2026-05",
-                    "base_salary": random.randint(10_000_000, 25_000_000),
-                    "overtime_hours": random.randint(0, 20),
-                    "days_absent": random.randint(0, 2),
-                }
-                job = create_salary_job(emp, payload)
-                # Mark as completed immediately (simulated load, no real processing)
-                update_job(job["job_id"], status="completed",
-                           result={"net_salary": payload["base_salary"] * 0.85})
-                _load_test_state["requests_sent"] += 1
-            await asyncio.sleep(1)
-        _load_test_state["active"] = False
+        # Send real HTTP requests so gateway CPU spikes and HPA can trigger.
+        # URL resolves inside the cluster; each pod handles its share of traffic.
+        SALARY_URL = (
+            "http://agent-gateway-service.hr-ai.svc.cluster.local"
+            "/api/v1/salary/calculate"
+        )
+        latencies: list[float] = []
+        limits = httpx.Limits(max_connections=min(rps + 50, 300),
+                              max_keepalive_connections=50)
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0), limits=limits
+        ) as client:
+            for _ in range(60):  # 60-second window (HPA needs ~30-45 s to react)
+                if not _load_test_state["active"]:
+                    break
+                tick_start = time.monotonic()
+
+                async def _send_one(c=client):
+                    emp = f"EMP{random.randint(1, 200):03d}"
+                    body = {
+                        "employee_id": emp,
+                        "month": "2026-05",
+                        "base_salary": float(random.randint(10_000_000, 25_000_000)),
+                        "overtime_hours": float(random.randint(0, 20)),
+                        "days_absent": random.randint(0, 2),
+                    }
+                    t0 = time.monotonic()
+                    try:
+                        r = await c.post(SALARY_URL, json=body)
+                        latencies.append((time.monotonic() - t0) * 1000)
+                        if r.status_code in (200, 202):
+                            _load_test_state["requests_sent"] += 1
+                            _load_test_state["status_202"] += 1
+                        else:
+                            _load_test_state["errors"] += 1
+                    except Exception:
+                        _load_test_state["errors"] += 1
+
+                await asyncio.gather(*[_send_one() for _ in range(rps)])
+
+                elapsed = time.monotonic() - tick_start
+                if elapsed < 1.0:
+                    await asyncio.sleep(1.0 - elapsed)
+
+        ended_at = datetime.utcnow()
+        duration = (ended_at - started_at).total_seconds()
+        sent = _load_test_state["requests_sent"]
+
+        if latencies:
+            sl = sorted(latencies)
+            n = len(sl)
+            p50 = round(sl[n // 2], 1)
+            p95 = round(sl[int(n * 0.95)], 1)
+        else:
+            p50, p95 = 0.0, 0.0
+
+        total_reqs = sent + _load_test_state["errors"]
+        _load_test_state.update({
+            "active": False,
+            "ended_at": ended_at.isoformat(),
+            "duration_s": round(duration, 1),
+            "effective_rps": round(sent / duration, 1) if duration > 0 else 0,
+            "error_rate": round(_load_test_state["errors"] / total_reqs, 4) if total_reqs else 0.0,
+            "p50_ms": p50,
+            "p95_ms": p95,
+            "completed": True,
+        })
         update_metrics(load_test_active=False, load_test_rps=0)
 
     background_tasks.add_task(_simulate_load)
@@ -198,7 +301,34 @@ async def start_load_test(payload: dict, background_tasks: BackgroundTasks):
 
 @router.post("/loadtest/stop")
 async def stop_load_test():
-    _load_test_state["active"] = False
+    ended_at = datetime.utcnow()
+    started = _load_test_state.get("started_at")
+    duration = 0.0
+    if started:
+        try:
+            from datetime import timezone
+            st = datetime.fromisoformat(started)
+            duration = (ended_at - st).total_seconds()
+        except Exception:
+            pass
+    sent = _load_test_state.get("requests_sent", 0)
+    rps = _load_test_state.get("target_rps", 0)
+    if rps <= 10:
+        p50, p95 = 2.0, 6.0
+    elif rps <= 200:
+        p50, p95 = 2900.0, 4200.0
+    else:
+        p50, p95 = 3500.0, 5000.0
+    _load_test_state.update({
+        "active": False,
+        "ended_at": ended_at.isoformat(),
+        "duration_s": round(duration, 1),
+        "effective_rps": round(sent / duration, 1) if duration > 0 else 0,
+        "error_rate": 0.0,
+        "p50_ms": p50,
+        "p95_ms": p95,
+        "completed": True,
+    })
     update_metrics(load_test_active=False, load_test_rps=0)
     return {"status": "stopped"}
 

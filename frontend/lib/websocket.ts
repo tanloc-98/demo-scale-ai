@@ -8,12 +8,22 @@ export function useMetricsStream() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const es = new EventSource(`${API_BASE}/api/v1/stream/metrics`);
-    es.onmessage = (e) => {
-      try { setMetrics(JSON.parse(e.data)); } catch {}
+    let es: EventSource;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      es = new EventSource(`${API_BASE}/api/v1/stream/metrics`);
+      es.onmessage = (e) => {
+        try { setMetrics(JSON.parse(e.data)); } catch {}
+      };
+      es.onerror = () => {
+        es.close();
+        retryTimer = setTimeout(connect, 3000);
+      };
     };
-    es.onerror = () => es.close();
-    return () => es.close();
+
+    connect();
+    return () => { es?.close(); clearTimeout(retryTimer); };
   }, []);
 
   return metrics;

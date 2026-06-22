@@ -13,6 +13,24 @@ router = APIRouter(prefix="/salary", tags=["salary"])
 _agent = SalaryAgent()
 
 
+def _get_celery():
+    """Lazy-load Celery app and verify at least one worker is active.
+    Returns None if no worker is available so BackgroundTasks fallback is used.
+    This prevents jobs from being stuck in the queue when no salary-agent pod
+    is running (e.g. during unit tests or local dev without K8s workers).
+    """
+    try:
+        from backend.workers.llm_worker import app as celery_app
+        # Check if any workers are registered and active (timeout=0.5s)
+        inspector = celery_app.control.inspect(timeout=0.5)
+        active = inspector.active()   # None if no workers respond
+        if not active:
+            return None
+        return celery_app
+    except Exception:
+        return None
+
+
 async def _run_salary(job_id: str, input_data: dict):
     return await _agent.run(job_id, input_data)
 
@@ -20,7 +38,8 @@ async def _run_salary(job_id: str, input_data: dict):
 @router.post("/calculate", response_model=JobResponse, status_code=202)
 async def calculate_salary(data: SalaryInput, background_tasks: BackgroundTasks):
     """Submit salary calculation job. Returns 202 + job_id immediately.
-    Returns 429 with Retry-After header when queue exceeds QUEUE_MAX."""
+    Dispatches to Celery (salary-agent worker) when available, falls back to
+    in-process BackgroundTask otherwise. Returns 429 when queue exceeds QUEUE_MAX."""
     depth = get_queue_depth()
     if depth >= QUEUE_MAX:
         return JSONResponse(
@@ -30,9 +49,14 @@ async def calculate_salary(data: SalaryInput, background_tasks: BackgroundTasks)
             headers={"Retry-After": str(_RETRY_AFTER_SECONDS)},
         )
     job = create_salary_job(data.employee_id, data.to_calc_input())
-    background_tasks.add_task(
-        process_job_async, job["job_id"], _run_salary, job["job_id"], data.to_calc_input()
-    )
+    celery = _get_celery()
+    if celery:
+        # Dispatch to salary-agent Celery worker pod — enables HPA scaling
+        celery.send_task("salary", args=[job["job_id"], data.to_calc_input()], queue="salary")
+    else:
+        background_tasks.add_task(
+            process_job_async, job["job_id"], _run_salary, job["job_id"], data.to_calc_input()
+        )
     return JobResponse(
         job_id=job["job_id"],
         status="queued",

@@ -149,15 +149,33 @@ def clear_done_jobs():
 # ── Public helpers ──────────────────────────────────────────────────────────
 
 def get_metrics() -> dict:
-    return dict(_metrics)
+    """Read metrics, merging Redis shared state over local defaults."""
+    m = dict(_metrics)
+    r = _get_redis()
+    if r:
+        raw = r.get("metrics:shared")
+        if raw:
+            m.update(json.loads(raw))
+    return m
 
 
 def get_queue_depth() -> int:
-    return int(_metrics.get("queue_depth", 0))
+    return int(get_metrics().get("queue_depth", 0))
 
 
 def update_metrics(**kwargs):
+    """Update in-memory metrics AND persist shared keys to Redis."""
     _metrics.update(kwargs)
+    # Persist cross-pod keys to Redis
+    shared_keys = {"load_test_active", "load_test_rps", "pod_counts",
+                   "queue_depth", "completed_today", "p95_latency_ms"}
+    shared = {k: _metrics[k] for k in shared_keys if k in _metrics}
+    r = _get_redis()
+    if r and shared:
+        try:
+            r.setex("metrics:shared", 86400, json.dumps(shared))
+        except Exception:
+            pass
 
 
 def create_salary_job(employee_id: str, payload: dict) -> dict:
